@@ -15,7 +15,7 @@ from app.db.models import Message
 from app.schemas.message import BatchEvalResponse
 from app.services.data_loader import data_loader
 from app.services.metrics import calculate_metrics
-from app.services.router import route_all_messages
+from app.services.router import route_messages
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ async def batch_evaluate(
     else:
         # Route all messages
         logger.info("Starting batch routing of %d messages", total_messages)
-        results = route_all_messages()
+        results = route_messages(data_loader.messages)
 
         # Persist results to database
         for r in results:
@@ -157,7 +157,10 @@ async def batch_evaluate(
     # Calculate metrics against golden labels (sample_messages.csv)
     golden = _load_golden_labels()
     if golden:
-        metrics = calculate_metrics(results, golden)
+        logger.info("Routing sample_messages.csv for evaluation metrics...")
+        sample_results = route_messages(data_loader.sample_messages)
+        metrics = calculate_metrics(sample_results, golden)
+        metrics.total_processed = len(results) # Keep total processed as 110 for the UI
         return metrics
 
     # No golden labels available — return basic stats

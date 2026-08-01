@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     # --- API Keys & Auth ---
     GEMINI_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
     API_BEARER_TOKEN: str = "dev-token"
 
     # --- Database ---

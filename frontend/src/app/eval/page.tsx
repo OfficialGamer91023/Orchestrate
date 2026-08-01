@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   BarChart,
   Bar,
@@ -27,6 +27,8 @@ import {
 import { runBatchEval } from "@/lib/api";
 import type { BatchEvalResponse, ClassMetrics } from "@/lib/api";
 
+import { useEvalStore } from "@/lib/store";
+
 const CLASS_COLORS: Record<string, string> = {
   notify: "#22c55e",
   digest: "#eab308",
@@ -34,8 +36,7 @@ const CLASS_COLORS: Record<string, string> = {
 };
 
 export default function EvalPage() {
-  const [result, setResult] = useState<BatchEvalResponse | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { result, setResult, isRunning: loading, setIsRunning: setLoading } = useEvalStore();
   const [error, setError] = useState<string | null>(null);
 
   const handleRun = async (force: boolean = false) => {

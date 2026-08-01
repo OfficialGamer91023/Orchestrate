@@ -255,19 +255,15 @@ def route_message(msg_input: MessageInput | dict) -> RoutingResult:
     )
 
 
-def route_all_messages() -> list[dict]:
-    """Route all messages from messages.csv and return results.
-
-    Returns:
-        List of dicts with output.csv columns
-    """
+def route_messages(df: pd.DataFrame) -> list[dict]:
+    """Route a batch of messages and return results."""
     data_loader.load()
     results = []
 
-    total = len(data_loader.messages)
+    total = len(df)
     logger.info("Starting batch routing of %d messages", total)
 
-    for idx, row in data_loader.messages.iterrows():
+    for idx, row in df.iterrows():
         msg = row.to_dict()
         start_time = time.time()
 

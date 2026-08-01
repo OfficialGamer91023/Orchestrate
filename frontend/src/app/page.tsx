@@ -21,6 +21,8 @@ import {
 import { fetchDashboardStats, runBatchEval } from "@/lib/api";
 import type { DashboardStats } from "@/lib/api";
 
+import { useEvalStore } from "@/lib/store";
+
 const DECISION_COLORS: Record<string, string> = {
   notify: "#22c55e",
   digest: "#eab308",
@@ -30,7 +32,7 @@ const DECISION_COLORS: Record<string, string> = {
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [evalRunning, setEvalRunning] = useState(false);
+  const { isRunning: evalRunning, setIsRunning: setEvalRunning, setResult: setEvalResult } = useEvalStore();
   const [error, setError] = useState<string | null>(null);
 
   const loadStats = async () => {
@@ -49,7 +51,8 @@ export default function DashboardPage() {
   const handleRunEval = async () => {
     try {
       setEvalRunning(true);
-      await runBatchEval(true);
+      const data = await runBatchEval(true);
+      setEvalResult(data);
       await loadStats();
     } catch {
       setError("Batch evaluation failed. Check backend logs.");
@@ -57,6 +60,8 @@ export default function DashboardPage() {
       setEvalRunning(false);
     }
   };
+
+
 
   useEffect(() => {
     loadStats();
