@@ -1,0 +1,10 @@
+venv/
+node_modules/
+.next/
+*.pyc
+__pycache__/
+log.txt
+output.csv
+scratch*.py
+.env
+.git/

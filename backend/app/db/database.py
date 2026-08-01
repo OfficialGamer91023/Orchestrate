@@ -15,7 +15,7 @@ engine = create_engine(
     settings.DATABASE_URL,
     connect_args=connect_args,
     echo=False,
-    pool_pre_ping=True,
+    pool_pre_ping=not settings.DATABASE_URL.startswith("sqlite"), # True for PG
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

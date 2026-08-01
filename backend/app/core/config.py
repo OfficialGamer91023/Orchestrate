@@ -1,6 +1,7 @@
 """Application configuration loaded from environment variables."""
 
 from pathlib import Path
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +19,10 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     API_BEARER_TOKEN: str = "dev-token"
+
+    # --- Web ---
+    FRONTEND_URL: str = "http://localhost:3000"
+    DEBUG: bool = True
 
     # --- Database ---
     DATABASE_URL: str = "sqlite:///./messages.db"
@@ -41,6 +46,13 @@ class Settings(BaseSettings):
     @property
     def media_dir(self) -> Path:
         return Path(self.MEDIA_STORAGE_PATH).resolve()
+
+    @model_validator(mode="after")
+    def validate_paths(self) -> "Settings":
+        # Don't strictly crash if dataset isn't fully downloaded yet, but create the dirs
+        Path(self.DATASET_PATH).mkdir(parents=True, exist_ok=True)
+        Path(self.MEDIA_STORAGE_PATH).mkdir(parents=True, exist_ok=True)
+        return self
 
 
 settings = Settings()

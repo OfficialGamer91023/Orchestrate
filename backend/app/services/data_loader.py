@@ -15,7 +15,9 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-def _safe_int(val, default: int = 0) -> int:
+from typing import Any
+
+def _safe_int(val: Any, default: int = 0) -> int:
     if pd.notna(val):
         try:
             return int(float(val))
@@ -24,7 +26,7 @@ def _safe_int(val, default: int = 0) -> int:
     return default
 
 
-def _safe_bool(val, default: bool = False) -> bool:
+def _safe_bool(val: Any, default: bool = False) -> bool:
     if pd.notna(val):
         try:
             return bool(int(float(val)))

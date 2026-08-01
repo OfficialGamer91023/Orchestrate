@@ -15,7 +15,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # Whisper binary and model paths (relative to backend/)
-WHISPER_BINARY = Path("whisper.cpp/main")
+WHISPER_BINARY = Path("whisper.cpp/build/bin/whisper-cli")
 WHISPER_MODEL = Path("whisper.cpp/models/ggml-base.en.bin")
 
 

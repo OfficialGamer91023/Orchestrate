@@ -9,8 +9,11 @@ Implements the hybrid routing pipeline:
 import logging
 import re
 import time
+import hashlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
+from cachetools import TTLCache
 
 from app.core.config import settings
 from app.schemas.message import MessageInput, RoutingResult
@@ -19,6 +22,9 @@ from app.services.data_loader import data_loader
 from app.services.vision_llm import route_message_with_llm
 
 logger = logging.getLogger(__name__)
+
+# TTL Cache: max 1000 items, expires in 300 seconds (5 minutes)
+_route_cache = TTLCache(maxsize=1000, ttl=300)
 
 # ---------------------------------------------------------------------------
 # Scam / Phishing Pattern Detection
@@ -83,6 +89,7 @@ def _execute_fast_path(
             reasoning="Empty message with no text or media content.",
             confidence=0.95,
             evidence_message_ids="none",
+            route_method="fast_path",
         )
 
     # ---- Rule 2: Scam / phishing patterns → mute ----
@@ -93,6 +100,7 @@ def _execute_fast_path(
             reasoning="Message matches known scam/phishing pattern (OTP request, account threats, or prompt injection).",
             confidence=0.90,
             evidence_message_ids="none",
+            route_method="fast_path",
         )
 
     if text and _matches_any(text, SCAM_URL_PATTERNS):
@@ -102,20 +110,25 @@ def _execute_fast_path(
             reasoning="Message contains suspicious URL pattern consistent with phishing.",
             confidence=0.88,
             evidence_message_ids="none",
+            route_method="fast_path",
         )
 
     # ---- Rule 3: Direct @mention of the user → notify ----
-    if text and user_id and f"@{user_id}" in text:
+    # Only applies to non-business, non-forwarded messages to avoid spam bots triggering notify.
+    is_safe_context = (conversation_type != "business" and forwarded_count == 0)
+    
+    if is_safe_context and text and user_id and f"@{user_id}" in text:
         return RoutingResult(
             action="notify",
             message_type="personal",
             reasoning=f"Message contains a direct @mention of the user ({user_id}).",
             confidence=0.90,
             evidence_message_ids="none",
+            route_method="fast_path",
         )
 
     # Handle custom user handle
-    if text and settings.USER_HANDLE:
+    if is_safe_context and text and settings.USER_HANDLE:
         if settings.USER_HANDLE.lower() in text.lower():
             return RoutingResult(
                 action="notify",
@@ -123,6 +136,7 @@ def _execute_fast_path(
                 reasoning=f"Message contains user's handle ({settings.USER_HANDLE}).",
                 confidence=0.90,
                 evidence_message_ids="none",
+                route_method="fast_path",
             )
 
     # ---- Rule 4: High forward count with greeting/chain pattern → mute ----
@@ -141,6 +155,7 @@ def _execute_fast_path(
             reasoning="Highly forwarded chain message with greeting/forward pattern.",
             confidence=0.85,
             evidence_message_ids=";".join(evidence[:3]) if evidence else "none",
+            route_method="fast_path",
         )
 
     # ---- Rule 5: Unverified business with domain mismatch → mute ----
@@ -160,6 +175,7 @@ def _execute_fast_path(
                 ),
                 confidence=0.88,
                 evidence_message_ids="none",
+                route_method="fast_path",
             )
 
     # No fast-path rule matched → fall through to LLM
@@ -188,6 +204,17 @@ def route_message(msg_input: MessageInput | dict) -> RoutingResult:
         msg = dict(msg_input)
 
     msg_id = msg.get("message_id", "unknown")
+    
+    # Generate cache key based on immutable characteristics
+    text_content = str(msg.get("message_text", "") or "")
+    sender = str(msg.get("sender_user_id", ""))
+    media = str(msg.get("media_type", ""))
+    cache_key = hashlib.md5(f"{text_content}:{sender}:{media}".encode()).hexdigest()
+    
+    if cache_key in _route_cache:
+        logger.info("Cache hit for message: %s", msg_id)
+        return _route_cache[cache_key]
+
     logger.info("Routing message: %s", msg_id)
 
     # Load context from datasets
@@ -200,6 +227,7 @@ def route_message(msg_input: MessageInput | dict) -> RoutingResult:
         logger.info(
             "Fast path: %s → %s (%dms)", msg_id, fast_result.action, elapsed
         )
+        _route_cache[cache_key] = fast_result
         return fast_result
 
     # ---- MULTIMODAL EXTRACTION ----
@@ -238,40 +266,50 @@ def route_message(msg_input: MessageInput | dict) -> RoutingResult:
             reasoning=llm_result.reasoning,
             confidence=llm_result.confidence,
             evidence_message_ids=llm_result.evidence_message_ids,
+            route_method="deep_path",
         )
         logger.info(
             "Deep path: %s → %s (%dms)", msg_id, result.action, elapsed
         )
+        _route_cache[cache_key] = result
         return result
 
     # Fallback: should never reach here if LLM has a safe default
     logger.error("Complete routing failure for %s — defaulting to digest", msg_id)
-    return RoutingResult(
+    fallback_result = RoutingResult(
         action="digest",
         message_type="unknown",
         reasoning="Routing pipeline failed. Defaulting to digest to prevent message loss.",
         confidence=0.1,
         evidence_message_ids="none",
+        route_method="unknown",
     )
+    _route_cache[cache_key] = fallback_result
+    return fallback_result
 
 
 def route_messages(df: pd.DataFrame) -> list[dict]:
-    """Route a batch of messages and return results."""
+    """Route a batch of messages and return results concurrently."""
     data_loader.load()
     results = []
 
     total = len(df)
     logger.info("Starting batch routing of %d messages", total)
-
-    for idx, row in df.iterrows():
+    
+    def process_row(idx: int, row: pd.Series) -> dict:
         msg = row.to_dict()
         start_time = time.time()
-
+        
         try:
             result = route_message(msg)
             elapsed = int((time.time() - start_time) * 1000)
-
-            results.append({
+            
+            logger.info(
+                "[%d/%d] %s → %s (%dms) via %s",
+                idx + 1, total, msg["message_id"], result.action, elapsed, getattr(result, "route_method", "unknown")
+            )
+            
+            return {
                 "message_id": msg["message_id"],
                 "action": result.action,
                 "message_type": result.message_type,
@@ -279,15 +317,13 @@ def route_messages(df: pd.DataFrame) -> list[dict]:
                 "confidence": result.confidence,
                 "evidence_message_ids": result.evidence_message_ids,
                 "processing_time_ms": elapsed,
-            })
-
-            logger.info(
-                "[%d/%d] %s → %s (%dms)",
-                idx + 1, total, msg["message_id"], result.action, elapsed,
-            )
+                "route_method": getattr(result, "route_method", "unknown"),
+            }
+        except (KeyboardInterrupt, SystemExit):
+            raise
         except Exception:
             logger.exception("Failed to route message %s", msg.get("message_id"))
-            results.append({
+            return {
                 "message_id": msg["message_id"],
                 "action": "digest",
                 "message_type": "unknown",
@@ -295,6 +331,14 @@ def route_messages(df: pd.DataFrame) -> list[dict]:
                 "confidence": 0.1,
                 "evidence_message_ids": "none",
                 "processing_time_ms": int((time.time() - start_time) * 1000),
-            })
-
-    return results
+                "route_method": "unknown",
+            }
+            
+    # Use max_workers=3 to avoid blowing past OpenAI's token per minute (TPM) limits on gpt-4o-mini
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = [executor.submit(process_row, i, row) for i, row in df.iterrows()]
+        for future in as_completed(futures):
+            results.append(future.result())
+            
+    # Sort results by original message ID to maintain deterministic output
+    return sorted(results, key=lambda x: x["message_id"])

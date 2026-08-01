@@ -1,7 +1,7 @@
 """FastAPI application entrypoint for the WhatsApp Message Notification Router."""
 
-import logging
 import sys
+import structlog
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -13,38 +13,46 @@ from app.core.config import settings
 from app.db.database import create_tables
 from app.services.data_loader import data_loader
 
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
+
 
 # ---------------------------------------------------------------------------
 # Logging Configuration
 # ---------------------------------------------------------------------------
 
 def _setup_logging() -> None:
-    """Configure dual logging: stdout + log.txt."""
-    root_logger = logging.getLogger()
-    root_logger.setLevel(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
-
-    # Format
-    fmt = logging.Formatter(
-        "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+    """Configure structured logging with structlog."""
+    import logging
+    
+    structlog.configure(
+        processors=[
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.add_logger_name,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.dict_tracebacks,
+            structlog.processors.JSONRenderer(),
+        ],
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+    
+    # Configure stdlib logging to route through structlog
+    logging.basicConfig(
+        format="%(message)s",
+        stream=sys.stdout,
+        level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
     )
 
-    # Stdout handler
-    stdout_handler = logging.StreamHandler(sys.stdout)
-    stdout_handler.setFormatter(fmt)
-    root_logger.addHandler(stdout_handler)
-
-    # File handler (append mode)
-    log_file = Path("log.txt")
-    file_handler = logging.FileHandler(log_file, mode="a", encoding="utf-8")
-    file_handler.setFormatter(fmt)
-    root_logger.addHandler(file_handler)
-
-    logging.info("Logging initialized → stdout + %s", log_file.resolve())
-
-
 _setup_logging()
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +98,7 @@ app = FastAPI(
     description=(
         "AI-powered WhatsApp message routing engine. "
         "Routes messages into notify, digest, or mute using "
-        "deterministic rules and Gemini 2.5 Flash."
+        "deterministic rules and OpenAI GPT-4o-mini."
     ),
     lifespan=lifespan,
 )
@@ -98,11 +106,16 @@ app = FastAPI(
 # CORS — allow frontend access
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"] if settings.DEBUG else [settings.FRONTEND_URL],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 # ---------------------------------------------------------------------------
 # Register Routes

@@ -15,7 +15,8 @@ start-backend:
 start-frontend:
 	cd frontend && npm install && npm run dev
 
-start: start-backend start-frontend
+start:
+	make start-backend & make start-frontend & wait
 
 link-dataset:
 	@echo "Linking dataset from reference repo to backend..."

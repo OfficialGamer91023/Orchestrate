@@ -70,6 +70,10 @@ class RoutingResult(BaseModel):
         default="none",
         description="Semicolon-separated historical message IDs or 'none'",
     )
+    route_method: str = Field(
+        default="unknown",
+        description="The path taken to route the message (fast_path or deep_path)"
+    )
 
 
 class MessageResponse(BaseModel):

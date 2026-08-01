@@ -175,18 +175,18 @@ async def batch_evaluate(
 
 def _write_output_csv(results: list[dict], output_path: Path) -> None:
     """Write prediction results to output.csv in the required format."""
+    required_keys = {"message_id", "action", "message_type", "reason", "confidence", "evidence_message_ids"}
+    for r in results:
+        missing = required_keys - set(r.keys())
+        if missing:
+            logger.error("Output validation failed: missing columns %s in result %s", missing, r)
+            raise ValueError(f"Output schema violation. Missing keys: {missing}")
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=[
-                "message_id",
-                "action",
-                "message_type",
-                "reason",
-                "confidence",
-                "evidence_message_ids",
-            ],
+            fieldnames=list(required_keys),
         )
         writer.writeheader()
         for r in results:

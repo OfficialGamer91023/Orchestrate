@@ -9,8 +9,7 @@ services:
       - "8000:8000"
     env_file:
       - .env
-    volumes:
-      - ./hackerrank-orchestrate-august26/dataset:/app/dataset:ro
+      - ./dataset:/app/dataset:ro
       - ./backend/log.txt:/app/log.txt
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -29,3 +28,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

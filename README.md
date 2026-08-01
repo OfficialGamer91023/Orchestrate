@@ -20,7 +20,7 @@ flowchart TD
     D --> F[Vision Layer: PIL Image Resizer]
     E --> G[LLM Context Assembly: 13 CSV Data Sources]
     F --> G
-    G --> H[Google Gemini 2.5 Flash API]
+    G --> H[OpenAI GPT-4o-mini API]
     H --> I[Structured JSON Decision Validation]
     I --> J[SQLite Database Persistence]
     C --> J
@@ -31,7 +31,7 @@ flowchart TD
 
 1. **Deterministic Fast Path:** Bypasses LLM inference for obvious spam, scam patterns (OTP/verification requests), direct `@mentions`, empty messages, and unverified business domain mismatches.
 2. **Local C++ Audio Engine:** Wraps `whisper.cpp` via an FFmpeg pipeline to transcribe voice notes locally with sub-second latency and zero API cost.
-3. **Cloud Vision & LLM Routing (Deep Path):** Leverages `gemini-2.5-flash` with structured Pydantic JSON enforcement to reason over user preferences, DND windows, historical engagement, groups, and business metadata.
+3. **Cloud Vision & LLM Routing (Deep Path):** Leverages `gpt-4o-mini` with structured Pydantic JSON enforcement to reason over user preferences, DND windows, historical engagement, groups, and business metadata.
 4. **Evaluation Engine & Dashboard:** A Next.js 15 app router web interface visualizing real-time routing decisions, message logs, audio transcripts, LLM reasoning, and benchmark metrics (Accuracy, Precision, Recall, Macro-F1, Notify FPR).
 
 ---
@@ -87,10 +87,10 @@ Clone the repository and copy the environment template:
 cp .env.example backend/.env
 ```
 
-Edit `backend/.env` to include your Google Gemini API key:
+Edit `backend/.env` to include your OpenAI API key:
 
 ```env
-GEMINI_API_KEY=your_google_gemini_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
 API_BEARER_TOKEN=dev-token
 DATABASE_URL=sqlite:///./messages.db
 MEDIA_STORAGE_PATH=./dataset/media
@@ -185,7 +185,7 @@ The evaluation pipeline produces `output.csv` matching the exact challenge submi
 
 ## Tech Stack
 
-- **Backend:** Python 3.11, FastAPI, SQLAlchemy 2.0, Pydantic v2, Google GenAI SDK (`gemini-2.5-flash`), `whisper.cpp`, FFmpeg, Pandas, SQLite3.
+- **Backend:** Python 3.11, FastAPI, SQLAlchemy 2.0, Pydantic v2, OpenAI SDK (`gpt-4o-mini`), `whisper.cpp`, FFmpeg, Pandas, SQLite3.
 - **Frontend:** Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS v4, Recharts, Axios, Lucide Icons.
 
 ---
