@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+*.db
+*.sqlite3
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# Environment & Secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+*.log
+log.txt
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
+
+# Large binaries / Submodules if cloned
+whisper.cpp/
+hackerrank-orchestrate-august26/
