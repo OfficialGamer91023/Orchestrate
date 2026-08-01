@@ -31,7 +31,7 @@ flowchart TD
 
 1. **Deterministic Fast Path:** Bypasses LLM inference for obvious spam, scam patterns (OTP/verification requests), direct `@mentions`, empty messages, and unverified business domain mismatches.
 2. **Local C++ Audio Engine:** Wraps `whisper.cpp` via an FFmpeg pipeline to transcribe voice notes locally with sub-second latency and zero API cost.
-3. **Cloud Vision & LLM Routing (Deep Path):** Leverages `gpt-4o-mini` with structured Pydantic JSON enforcement to reason over user preferences, DND windows, historical engagement, groups, and business metadata.
+3. **Cloud Vision & LLM Routing (Deep Path):** Leverages `gpt-4o-mini` with structured Pydantic JSON enforcement and strict Chain-of-Thought (CoT) prompting to reason over user preferences, DND windows, historical engagement, groups, and business metadata. Built-in exponential backoff and jitter algorithms ensure robust handling of OpenAI TPM rate limits during high-volume batch evaluations.
 4. **Evaluation Engine & Dashboard:** A Next.js 15 app router web interface visualizing real-time routing decisions, message logs, audio transcripts, LLM reasoning, and benchmark metrics (Accuracy, Precision, Recall, Macro-F1, Notify FPR).
 
 ---
@@ -44,8 +44,8 @@ flowchart TD
 │   ├── app/
 │   │   ├── api/
 │   │   │   └── routes/          # FastAPI endpoints (route-message, logs, batch-eval)
-│   │   ├── core/                # Configuration (Pydantic BaseSettings) & security
-│   │   ├── db/                  # SQLAlchemy 2.0 database engine & models
+│   │   ├── core/                # Configuration (Pydantic BaseSettings) & security (API token validation)
+│   │   ├── db/                  # SQLAlchemy 2.0 database engine (concurrent write-optimized) & models
 │   │   ├── schemas/             # Pydantic v2 request/response schemas
 │   │   └── services/            # Core logic (data_loader, audio_engine, vision_llm, router, metrics)
 │   ├── main.py                  # FastAPI server entrypoint
