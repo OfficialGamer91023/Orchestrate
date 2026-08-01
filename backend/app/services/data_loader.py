@@ -15,6 +15,25 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _safe_int(val, default: int = 0) -> int:
+    if pd.notna(val):
+        try:
+            return int(float(val))
+        except (ValueError, TypeError):
+            pass
+    return default
+
+
+def _safe_bool(val, default: bool = False) -> bool:
+    if pd.notna(val):
+        try:
+            return bool(int(float(val)))
+        except (ValueError, TypeError):
+            return bool(val)
+    return default
+
+
+
 class DataLoader:
     """Singleton-style loader for the hackathon dataset."""
 
@@ -89,12 +108,12 @@ class DataLoader:
             "user_id": user_id,
             "found": True,
             "do_not_disturb_window": r.get("do_not_disturb_window", ""),
-            "messages_opened_30d": int(r.get("messages_opened_30d", 0)),
-            "messages_replied_30d": int(r.get("messages_replied_30d", 0)),
-            "notifications_dismissed_30d": int(
+            "messages_opened_30d": _safe_int(r.get("messages_opened_30d", 0)),
+            "messages_replied_30d": _safe_int(r.get("messages_replied_30d", 0)),
+            "notifications_dismissed_30d": _safe_int(
                 r.get("notifications_dismissed_30d", 0)
             ),
-            "messages_reported_30d": int(r.get("messages_reported_30d", 0)),
+            "messages_reported_30d": _safe_int(r.get("messages_reported_30d", 0)),
         }
 
     def get_group_context(self, group_id: str, user_id: str) -> dict:
@@ -110,9 +129,9 @@ class DataLoader:
                     "found": True,
                     "group_name": g.get("group_name", ""),
                     "group_type": g.get("group_type", ""),
-                    "member_count": int(g.get("member_count", 0)),
-                    "admin_count": int(g.get("admin_count", 0)),
-                    "messages_30d": int(g.get("messages_30d", 0)),
+                    "member_count": _safe_int(g.get("member_count", 0)),
+                    "admin_count": _safe_int(g.get("admin_count", 0)),
+                    "messages_30d": _safe_int(g.get("messages_30d", 0)),
                 }
             )
 
@@ -126,13 +145,13 @@ class DataLoader:
             result.update(
                 {
                     "user_role": m.get("role", "member"),
-                    "user_messages_sent_30d": int(m.get("messages_sent_30d", 0)),
-                    "user_messages_read_30d": int(m.get("messages_read_30d", 0)),
-                    "user_replies_sent_30d": int(m.get("replies_sent_30d", 0)),
-                    "user_notifications_dismissed_30d": int(
+                    "user_messages_sent_30d": _safe_int(m.get("messages_sent_30d", 0)),
+                    "user_messages_read_30d": _safe_int(m.get("messages_read_30d", 0)),
+                    "user_replies_sent_30d": _safe_int(m.get("replies_sent_30d", 0)),
+                    "user_notifications_dismissed_30d": _safe_int(
                         m.get("notifications_dismissed_30d", 0)
                     ),
-                    "group_muted_by_user": bool(m.get("group_muted_by_user", 0)),
+                    "group_muted_by_user": _safe_bool(m.get("group_muted_by_user", 0)),
                 }
             )
 
@@ -153,7 +172,7 @@ class DataLoader:
             "sender_user_id": sender_user_id,
             "found": True,
             "role": m.get("role", "member"),
-            "messages_sent_30d": int(m.get("messages_sent_30d", 0)),
+            "messages_sent_30d": _safe_int(m.get("messages_sent_30d", 0)),
         }
 
     def get_business_context(self, business_id: str, user_id: str) -> dict:
@@ -172,13 +191,13 @@ class DataLoader:
                     "display_name": b.get("display_name", ""),
                     "brand_name": b.get("brand_name", ""),
                     "category": b.get("category", ""),
-                    "verified": bool(b.get("verified", 0)),
+                    "verified": _safe_bool(b.get("verified", 0)),
                     "official_domain": b.get("official_domain", ""),
                     "domain_used_by_sender": b.get("domain_used_by_sender", ""),
-                    "account_age_days": int(b.get("account_age_days", 0)),
-                    "messages_sent_30d": int(b.get("messages_sent_30d", 0)),
-                    "user_reports_30d": int(b.get("user_reports_30d", 0)),
-                    "domain_used_by_sender_age_days": int(
+                    "account_age_days": _safe_int(b.get("account_age_days", 0)),
+                    "messages_sent_30d": _safe_int(b.get("messages_sent_30d", 0)),
+                    "user_reports_30d": _safe_int(b.get("user_reports_30d", 0)),
+                    "domain_used_by_sender_age_days": _safe_int(
                         b.get("domain_used_by_sender_age_days", 0)
                     ),
                     "domain_mismatch": (
@@ -198,20 +217,20 @@ class DataLoader:
             result.update(
                 {
                     "user_relationship": u.get("why_user_knows_account", ""),
-                    "allows_promotions": bool(u.get("allows_promotions", 0)),
+                    "allows_promotions": _safe_bool(u.get("allows_promotions", 0)),
                     "promotions_opted_out_at": (
                         str(u["promotions_opted_out_at"])
                         if pd.notna(u.get("promotions_opted_out_at"))
                         else None
                     ),
-                    "activity_count_180d": int(u.get("activity_count_180d", 0)),
-                    "user_messages_opened_30d": int(
+                    "activity_count_180d": _safe_int(u.get("activity_count_180d", 0)),
+                    "user_messages_opened_30d": _safe_int(
                         u.get("messages_opened_30d", 0)
                     ),
-                    "user_messages_dismissed_30d": int(
+                    "user_messages_dismissed_30d": _safe_int(
                         u.get("messages_dismissed_30d", 0)
                     ),
-                    "user_messages_replied_30d": int(
+                    "user_messages_replied_30d": _safe_int(
                         u.get("messages_replied_30d", 0)
                     ),
                 }
@@ -259,7 +278,7 @@ class DataLoader:
                 "message_text": row.get("message_text", ""),
                 "conversation_type": row.get("conversation_type", ""),
                 "created_at": str(row.get("created_at", "")),
-                "forwarded_count": int(row.get("forwarded_count", 0)),
+                "forwarded_count": _safe_int(row.get("forwarded_count", 0)),
                 "media_type": row.get("media_type", ""),
             }
 
@@ -272,14 +291,14 @@ class DataLoader:
                 e = events.iloc[0]
                 entry.update(
                     {
-                        "was_opened": bool(e.get("message_opened", 0)),
-                        "was_replied": bool(e.get("message_replied", 0)),
-                        "reaction_time_minutes": int(
+                        "was_opened": _safe_bool(e.get("message_opened", 0)),
+                        "was_replied": _safe_bool(e.get("message_replied", 0)),
+                        "reaction_time_minutes": _safe_int(
                             e.get("reaction_time_minutes", 0)
                         ),
-                        "was_dismissed": bool(e.get("notification_dismissed", 0)),
-                        "muted_after": bool(e.get("muted_after_message", 0)),
-                        "was_reported": bool(e.get("message_reported", 0)),
+                        "was_dismissed": _safe_bool(e.get("notification_dismissed", 0)),
+                        "muted_after": _safe_bool(e.get("muted_after_message", 0)),
+                        "was_reported": _safe_bool(e.get("message_reported", 0)),
                     }
                 )
 

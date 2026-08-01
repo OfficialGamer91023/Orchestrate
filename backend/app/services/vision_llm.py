@@ -295,9 +295,13 @@ def route_message_with_llm(
 
     for attempt in range(max_retries):
         try:
-            start_ms = time.time()
+            # Rate limit throttling: free tier allows 15 RPM (4s per call)
+            time.sleep(2.5)
+
+            # Try active Gemini model
+            model_name = "gemini-2.0-flash"
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=model_name,
                 contents=contents,
                 config=config,
             )
@@ -332,11 +336,11 @@ def route_message_with_llm(
 
             # Exponential backoff for rate limits
             if "ResourceExhausted" in error_name or "429" in str(e):
-                wait = 2 ** attempt
+                wait = 4 * (attempt + 1)
                 logger.info("Rate limited — waiting %ds before retry", wait)
                 time.sleep(wait)
             elif attempt < max_retries - 1:
-                time.sleep(1)
+                time.sleep(2)
 
     # All retries exhausted — return safe default
     logger.error("All %d LLM retries exhausted — defaulting to digest", max_retries)
