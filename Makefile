@@ -7,8 +7,7 @@ install-backend:
 	cd backend && python3 -m venv venv && . venv/bin/activate && pip install -r requirements.txt
 
 build-whisper:
-	git submodule update --init --recursive
-	cd backend/whisper.cpp && make && bash ./models/download-ggml-model.sh base.en
+	bash scripts/build_whisper.sh
 
 start-backend:
 	cd backend && . venv/bin/activate && uvicorn main:app --host 0.0.0.0 --port 8000 --reload
