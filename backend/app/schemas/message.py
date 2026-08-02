@@ -72,7 +72,8 @@ class RoutingResult(BaseModel):
     )
     route_method: str = Field(
         default="unknown",
-        description="The path taken to route the message (fast_path or deep_path)"
+        description="The path taken to route the message (fast_path or deep_path)",
+        exclude=True,
     )
 
 

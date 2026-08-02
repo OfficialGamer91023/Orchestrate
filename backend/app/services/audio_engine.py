@@ -69,7 +69,7 @@ def transcribe_audio(audio_path: str, timeout: int = 60) -> str | None:
             _ffmpeg_available,
             _whisper_available,
         )
-        return None
+        return f"[Voice note available at {audio_path} but could not be transcribed locally]" 
 
     source = Path(audio_path)
     if not source.exists():
@@ -99,7 +99,7 @@ def transcribe_audio(audio_path: str, timeout: int = 60) -> str | None:
         )
         if result.returncode != 0:
             logger.error("FFmpeg failed: %s", result.stderr[:500])
-            return None
+            return f"[Voice note available at {audio_path} but could not be transcribed locally]" 
 
         # Step 2: Run whisper.cpp
         whisper_cmd = [
@@ -117,7 +117,7 @@ def transcribe_audio(audio_path: str, timeout: int = 60) -> str | None:
         )
         if result.returncode != 0:
             logger.error("whisper.cpp failed: %s", result.stderr[:500])
-            return None
+            return f"[Voice note available at {audio_path} but could not be transcribed locally]" 
 
         transcript = result.stdout.strip()
         logger.info(
@@ -129,10 +129,10 @@ def transcribe_audio(audio_path: str, timeout: int = 60) -> str | None:
 
     except subprocess.TimeoutExpired:
         logger.error("Audio transcription timed out after %ds", timeout)
-        return None
+        return f"[Voice note available at {audio_path} but could not be transcribed locally]"
     except Exception:
         logger.exception("Unexpected error during audio transcription")
-        return None
+        return f"[Voice note available at {audio_path} but could not be transcribed locally]" 
     finally:
         # Cleanup temporary WAV
         if tmp_wav.exists():

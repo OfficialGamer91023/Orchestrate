@@ -100,8 +100,27 @@ def _matches_any(text: str, patterns: list[str]) -> bool:
     return any(re.search(p, text) for p in patterns)
 
 
+
+def _is_dnd_active(user_ctx: dict, msg_timestamp_str: str) -> bool:
+    dnd = user_ctx.get("do_not_disturb_window")
+    if not dnd or not msg_timestamp_str or str(msg_timestamp_str) == "nan":
+        return False
+    try:
+        from datetime import datetime
+        start_str, end_str = dnd.split("-")
+        msg_time = datetime.strptime(msg_timestamp_str, "%Y-%m-%d %H:%M").time()
+        start = datetime.strptime(start_str.strip(), "%H:%M").time()
+        end = datetime.strptime(end_str.strip(), "%H:%M").time()
+        if start <= end:
+            return start <= msg_time <= end
+        else:
+            return start <= msg_time or msg_time <= end
+    except Exception:
+        return False
+
 # ---------------------------------------------------------------------------
 # Fast Path Rules Engine
+
 # ---------------------------------------------------------------------------
 
 def _execute_fast_path(
@@ -119,13 +138,13 @@ def _execute_fast_path(
     conversation_type = msg.get("conversation_type", "")
 
     # ---- Rule 1: Empty message (no text, no media) → mute ----
-    has_media = media_type and pd.notna(media_type) and str(media_type).strip()
-    if not text.strip() and not has_media:
+    has_media = media_type and str(media_type).strip() and str(media_type) != "nan"
+    if not text.strip() and not has_media and str(media_type) != "voice":
         return RoutingResult(
             action="mute",
             message_type="unknown",
             reasoning="Empty message with no text or media content.",
-            confidence=0.95,
+            confidence=0.92,
             evidence_message_ids="none",
             route_method="fast_path",
         )
@@ -152,27 +171,17 @@ def _execute_fast_path(
         )
 
     # ---- Rule 3: Direct @mention of the user → notify ----
-    # Only applies to non-business, non-forwarded messages to avoid spam bots triggering notify.
     is_safe_context = (conversation_type != "business" and forwarded_count == 0)
+    user_name = context.get("user", {}).get("first_name", "").lower()
     
-    if is_safe_context and text and user_id and f"@{user_id}" in text:
-        return RoutingResult(
-            action="notify",
-            message_type="personal",
-            reasoning=f"Message contains a direct @mention of the user ({user_id}).",
-            confidence=0.90,
-            evidence_message_ids="none",
-            route_method="fast_path",
-        )
-
-    # Handle custom user handle
-    if is_safe_context and text and settings.USER_HANDLE:
-        if settings.USER_HANDLE.lower() in text.lower():
+    if is_safe_context and text:
+        text_lower = text.lower()
+        if (user_name and user_name in text_lower) or (f"@{user_id}" in text_lower) or ("you" in text_lower and len(text_lower.split()) < 15):
             return RoutingResult(
                 action="notify",
                 message_type="personal",
-                reasoning=f"Message contains user's handle ({settings.USER_HANDLE}).",
-                confidence=0.90,
+                reasoning="Message directly mentions the user or uses direct pronouns in a short safe context.",
+                confidence=0.85,
                 evidence_message_ids="none",
                 route_method="fast_path",
             )
@@ -247,6 +256,68 @@ def _execute_fast_path(
                 route_method="fast_path",
             )
 
+    # ---- Rule 8: Muted Group + Non-Admin + Non-Urgent ----
+    user_ctx = context.get("user", {})
+    if grp.get("found") and user_ctx.get("muted_groups", []):
+        if str(grp.get("group_id")) in user_ctx.get("muted_groups", []):
+            role = context.get("sender_role", {}).get("role", "member")
+            if role != "admin" and not _matches_any(text, [r"(?i)\b(urgent|important|emergency)\b"]):
+                return RoutingResult(
+                    action="mute",
+                    message_type="group",
+                    reasoning="Message is in a muted group from a non-admin without urgent keywords.",
+                    confidence=0.88,
+                    evidence_message_ids="none",
+                    route_method="fast_path",
+                )
+
+    # ---- Rule 9: Opted-out promotions ----
+    if biz.get("found") and not biz.get("allows_promotions"):
+        if _matches_any(text, [r"(?i)\b(offer|discount|sale|off|promo)\b"]):
+            return RoutingResult(
+                action="mute",
+                message_type="promotion",
+                reasoning="User has opted out of promotions from this business.",
+                confidence=0.92,
+                evidence_message_ids="none",
+                route_method="fast_path",
+            )
+
+    # ---- Rule 10: Verified Business Delivery/Order ----
+    if biz.get("found") and biz.get("verified"):
+        if _matches_any(text, [r"(?i)\b(arriving today|out for delivery|delivered|order)\b"]):
+            return RoutingResult(
+                action="notify",
+                message_type="business_update",
+                reasoning="Verified business sending delivery or order updates.",
+                confidence=0.88,
+                evidence_message_ids="none",
+                route_method="fast_path",
+            )
+
+    # ---- Rule 11: Verified Business Payment Reminder ----
+    if biz.get("found") and biz.get("verified"):
+        if _matches_any(text, [r"(?i)\b(payment due|bill|invoice)\b"]):
+            return RoutingResult(
+                action="digest",
+                message_type="payment",
+                reasoning="Verified business sending a payment reminder.",
+                confidence=0.85,
+                evidence_message_ids="none",
+                route_method="fast_path",
+            )
+
+    # ---- Rule 12: High Report Business ----
+    if biz.get("found") and biz.get("user_reports_30d", 0) > 20:
+        return RoutingResult(
+            action="mute",
+            message_type="spam",
+            reasoning="Business has a high report rate (>20 in last 30 days).",
+            confidence=0.92,
+            evidence_message_ids="none",
+            route_method="fast_path",
+        )
+
     # No fast-path rule matched → fall through to LLM
     return None
 
@@ -278,7 +349,8 @@ def route_message(msg_input: MessageInput | dict) -> RoutingResult:
     text_content = str(msg.get("message_text", "") or "")
     sender = str(msg.get("sender_user_id", ""))
     media = str(msg.get("media_type", ""))
-    cache_key = hashlib.md5(f"{text_content}:{sender}:{media}".encode()).hexdigest()
+    user_id = str(msg.get("user_id", ""))
+    cache_key = hashlib.md5(f"{user_id}:{text_content}:{sender}:{media}".encode()).hexdigest()
 
     logger.info("Routing message: %s", msg_id)
 
@@ -292,6 +364,14 @@ def route_message(msg_input: MessageInput | dict) -> RoutingResult:
         logger.info(
             "Fast path: %s → %s (%dms)", msg_id, fast_result.action, elapsed
         )
+        # Apply DND Downgrade
+        user_ctx = context.get("user", {})
+        msg_timestamp = msg.get("created_at")
+        if fast_result.action == "notify" and fast_result.message_type not in ["scam", "urgent", "security"] and not _matches_any(str(msg.get("message_text", "")), [r"(?i)\b(urgent|emergency)\b"]):
+            if _is_dnd_active(user_ctx, msg_timestamp):
+                fast_result.action = "digest"
+                fast_result.reasoning += " (Downgraded to digest due to active DND window)."
+        
         _route_cache[cache_key] = fast_result
         return fast_result
 
@@ -318,7 +398,8 @@ def route_message(msg_input: MessageInput | dict) -> RoutingResult:
     text_content = str(msg.get("message_text", "") or "")
     sender = str(msg.get("sender_user_id", ""))
     media = str(msg.get("media_type", ""))
-    cache_key = hashlib.md5(f"{text_content}:{sender}:{media}".encode()).hexdigest()
+    user_id = str(msg.get("user_id", ""))
+    cache_key = hashlib.md5(f"{user_id}:{text_content}:{sender}:{media}".encode()).hexdigest()
 
     # ---- DEEP PATH (LLM) ----
     if cache_key in _route_cache:
@@ -361,6 +442,15 @@ def route_message(msg_input: MessageInput | dict) -> RoutingResult:
         logger.info(
             "Deep path: %s → %s (%dms)", msg_id, result.action, elapsed
         )
+        
+        # Apply DND Downgrade
+        user_ctx = context.get("user", {})
+        msg_timestamp = msg.get("created_at")
+        if result.action == "notify" and result.message_type not in ["scam", "urgent", "security"] and not _matches_any(str(msg.get("message_text", "")), [r"(?i)\b(urgent|emergency)\b"]):
+            if _is_dnd_active(user_ctx, msg_timestamp):
+                result.action = "digest"
+                result.reasoning += " (Downgraded to digest due to active DND window)."
+        
         _route_cache[cache_key] = result
         return result
 

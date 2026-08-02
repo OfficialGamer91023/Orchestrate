@@ -426,7 +426,7 @@ class DataLoader:
         return context
 
     def get_evidence_for_message(self, msg: dict, limit: int = 3) -> str:
-        """Retrieve top matching historical message IDs using Jaccard similarity."""
+        """Retrieve top matching historical message IDs using weighted scoring."""
         user_id = msg.get("user_id", "")
         if not user_id:
             return "none"
@@ -436,6 +436,8 @@ class DataLoader:
         if hist.empty:
             return "none"
 
+        events = self.message_events[self.message_events["user_id"] == user_id]
+        
         # Filter by sender, group, or business to narrow the search space
         sender_id = msg.get("sender_user_id")
         group_id = msg.get("group_id")
@@ -449,34 +451,67 @@ class DataLoader:
         elif biz_id and pd.notna(biz_id):
             filtered_hist = hist[hist["business_id"] == biz_id]
             
-        # Fall back to all history if specific filter yields nothing
         if filtered_hist.empty:
             filtered_hist = hist
 
         current_text = str(msg.get("message_text", "") or "")
+        current_media = str(msg.get("media_type", "") or "")
         scored_messages = []
 
         for _, row in filtered_hist.iterrows():
             hist_msg_id = row.get("message_id")
             hist_text = str(row.get("message_text", "") or "")
+            hist_media = str(row.get("media_type", "") or "")
             
-            # Base similarity on text
+            score = 0.0
+            
+            # Text similarity
             sim = _calculate_jaccard_similarity(current_text, hist_text)
-            
-            # Boost score if media type matches
-            if msg.get("media_type") and pd.notna(msg.get("media_type")) and msg.get("media_type") == row.get("media_type"):
-                sim += 0.2
+            if sim > 0.3:
+                score += 0.2
+            elif sim > 0.1:
+                score += 0.1
                 
-            if sim > 0:
-                scored_messages.append((hist_msg_id, sim))
+            # Same media type
+            if current_media and current_media != "nan" and current_media == hist_media:
+                score += 0.1
+                
+            # Sender match
+            same_sender = (sender_id and row.get("sender_user_id") == sender_id)
+            same_biz = (biz_id and row.get("business_id") == biz_id)
+            same_group = (group_id and row.get("group_id") == group_id)
+            
+            if same_sender or same_biz:
+                score += 0.2
+                
+            if same_group:
+                score += 0.2
+                
+            # Events (reactions)
+            ev = events[events["message_id"] == hist_msg_id]
+            if not ev.empty:
+                e = ev.iloc[0]
+                dismissed = _safe_bool(e.get("notification_dismissed"))
+                muted = _safe_bool(e.get("muted_after_message"))
+                reported = _safe_bool(e.get("message_reported"))
+                opened = _safe_bool(e.get("message_opened"))
+                
+                if dismissed or muted or reported:
+                    score += 0.3
+                    if same_sender or same_biz:
+                        score += 0.5  # High penalty/same sender + negative action outcome
+                elif opened:
+                    score += 0.1
+                    
+            if score > 0:
+                scored_messages.append((hist_msg_id, score))
 
         if not scored_messages:
-            # If no textual similarity, return recent activity from the same sender/group
             recent = filtered_hist.sort_values("created_at", ascending=False).head(limit)
             ids = [str(r["message_id"]) for _, r in recent.iterrows()]
             return ";".join(ids) if ids else "none"
 
-        # Sort by similarity descending
+        # Sort by score descending
         scored_messages.sort(key=lambda x: x[1], reverse=True)
         top_ids = [str(m[0]) for m in scored_messages[:limit]]
         
