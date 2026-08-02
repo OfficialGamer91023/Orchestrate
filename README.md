@@ -39,10 +39,10 @@ Incoming Message
 
 ## Performance Benchmarks
 
-- **Accuracy**: 96.7%
-- **Macro F1**: 96.5%
+- **Accuracy**: 93.3%
+- **Macro F1**: 93.5%
 - **Notify FPR**: 4.8%
-- **Avg Latency**: ~1360ms
+- **Avg Latency**: ~1307ms
 
 ## How to Run
 
