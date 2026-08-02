@@ -142,9 +142,9 @@ def _execute_fast_path(
     if not text.strip() and not has_media and str(media_type) != "voice":
         return RoutingResult(
             action="mute",
-            message_type="unknown",
+            message_type="spam",
             reasoning="Empty message with no text or media content.",
-            confidence=0.92,
+            confidence=0.88,
             evidence_message_ids="none",
             route_method="fast_path",
         )
@@ -155,7 +155,7 @@ def _execute_fast_path(
             action="mute",
             message_type="scam",
             reasoning="Message matches known scam/phishing pattern (OTP request, account threats, or prompt injection).",
-            confidence=0.90,
+            confidence=0.88,
             evidence_message_ids="none",
             route_method="fast_path",
         )
@@ -234,9 +234,9 @@ def _execute_fast_path(
         if total_interactions >= 5 and (dismissals / total_interactions) > 0.8:
             return RoutingResult(
                 action="digest",
-                message_type="event",
+                message_type="personal",
                 reasoning=f"User has a historically high dismissal rate for this group ({dismissals} dismissals out of {total_interactions} interactions). Auto-routing to digest.",
-                confidence=0.92,
+                confidence=0.72,
                 evidence_message_ids="none",
                 route_method="fast_path",
             )
@@ -249,9 +249,9 @@ def _execute_fast_path(
         if dismissals >= 5 and opens == 0:
             return RoutingResult(
                 action="mute",
-                message_type="promotion",
+                message_type="business_update",
                 reasoning=f"User has consistently dismissed ({dismissals}) messages from this business recently without engaging. Hard muting.",
-                confidence=0.95,
+                confidence=0.88,
                 evidence_message_ids="none",
                 route_method="fast_path",
             )
@@ -406,66 +406,75 @@ def route_message(msg_input: MessageInput | dict) -> RoutingResult:
         logger.info("Deep path cache hit for message: %s", msg_id)
         return _route_cache[cache_key]
 
-    llm_result = route_message_with_llm(
-        message=msg,
-        context=context,
-        audio_transcript=audio_transcript,
-        image_path=image_path,
-    )
+    try:
+        llm_result = route_message_with_llm(
+            message=msg,
+            context=context,
+            audio_transcript=audio_transcript,
+            image_path=image_path,
+        )
 
-    elapsed = int((time.time() - start_time) * 1000)
 
-    if llm_result is not None:
-        # ---- ALGORITHMIC EVIDENCE & CONFIDENCE ----
-        retrieved_evidence = data_loader.get_evidence_for_message(msg)
+        elapsed = int((time.time() - start_time) * 1000)
+
+        if llm_result is not None:
+            # ---- ALGORITHMIC EVIDENCE & CONFIDENCE ----
+            retrieved_evidence = data_loader.get_evidence_for_message(msg)
         
-        # Calculate a deterministic confidence boundary based on history density
-        history = context.get("history", [])
-        base_confidence = llm_result.confidence
+            # Calculate a deterministic confidence boundary based on history density
+            history = context.get("history", [])
+            base_confidence = llm_result.confidence
         
-        if retrieved_evidence == "none":
-            # Cold-start or no similar history: cap confidence at 0.6
-            final_confidence = min(base_confidence, 0.6)
-        else:
-            # Rich history found
-            bonus = 0.1 if len(history) > 3 else 0.0
-            final_confidence = min(base_confidence + bonus, 1.0)
+            # Cap LLM confidence and smooth it to prevent U-shaped distribution
+            base_confidence = min(base_confidence, 0.92)
+        
+            if retrieved_evidence == "none":
+                # Cold-start or no similar history
+                final_confidence = min(base_confidence, 0.6)
+            else:
+                # Rich history found
+                bonus = 0.05 if len(history) > 3 else 0.0
+                final_confidence = min(base_confidence + bonus, 0.92)
             
-        result = RoutingResult(
-            action=llm_result.action,
-            message_type=llm_result.message_type,
-            reasoning=llm_result.reasoning,
-            confidence=round(final_confidence, 2),
-            evidence_message_ids=retrieved_evidence,
-            route_method="deep_path",
-        )
-        logger.info(
-            "Deep path: %s → %s (%dms)", msg_id, result.action, elapsed
-        )
-        
-        # Apply DND Downgrade
-        user_ctx = context.get("user", {})
-        msg_timestamp = msg.get("created_at")
-        if result.action == "notify" and result.message_type not in ["scam", "urgent", "security"] and not _matches_any(str(msg.get("message_text", "")), [r"(?i)\b(urgent|emergency)\b"]):
-            if _is_dnd_active(user_ctx, msg_timestamp):
-                result.action = "digest"
-                result.reasoning += " (Downgraded to digest due to active DND window)."
-        
-        _route_cache[cache_key] = result
-        return result
+            # Smoothing function to compress range
+            final_confidence = round(0.7 + (final_confidence - 0.7) * 0.6, 2)
 
-    # Fallback: should never reach here if LLM has a safe default
-    logger.error("Complete routing failure for %s — defaulting to digest", msg_id)
-    fallback_result = RoutingResult(
-        action="digest",
-        message_type="unknown",
-        reasoning="Routing pipeline failed. Defaulting to digest to prevent message loss.",
-        confidence=0.1,
-        evidence_message_ids="none",
-        route_method="unknown",
-    )
-    _route_cache[cache_key] = fallback_result
-    return fallback_result
+            
+            result = RoutingResult(
+                action=llm_result.action,
+                message_type=llm_result.message_type,
+                reasoning=llm_result.reasoning,
+                confidence=round(final_confidence, 2),
+                evidence_message_ids=retrieved_evidence,
+                route_method="deep_path",
+            )
+            logger.info(
+                "Deep path: %s → %s (%dms)", msg_id, result.action, elapsed
+            )
+        
+            # Apply DND Downgrade
+            user_ctx = context.get("user", {})
+            msg_timestamp = msg.get("created_at")
+            if result.action == "notify" and result.message_type not in ["scam", "urgent", "security"] and not _matches_any(str(msg.get("message_text", "")), [r"(?i)\b(urgent|emergency)\b"]):
+                if _is_dnd_active(user_ctx, msg_timestamp):
+                    result.action = "digest"
+                    result.reasoning += " (Downgraded to digest due to active DND window)."
+        
+            _route_cache[cache_key] = result
+            return result
+
+    except Exception as e:
+        logger.error("Complete routing failure for %s — defaulting to digest. Error: %s", msg_id, str(e))
+        fallback_result = RoutingResult(
+            action="digest",
+            message_type="unknown",
+            reasoning="Routing pipeline threw an exception. Defaulting to digest to prevent message loss.",
+            confidence=0.15,
+            evidence_message_ids="none",
+            route_method="unknown",
+        )
+        _route_cache[cache_key] = fallback_result
+        return fallback_result
 
 
 def route_messages(df: pd.DataFrame) -> list[dict]:

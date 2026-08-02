@@ -28,6 +28,7 @@ def calculate_metrics(
     """
     # Build lookup: message_id -> dict
     pred_map = {p["message_id"]: p.get("action", "digest") for p in predictions}
+    pred_map_full = {p["message_id"]: p for p in predictions}
     gold_map = {g["message_id"]: g for g in golden}
 
     # Find common message IDs

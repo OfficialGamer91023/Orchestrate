@@ -53,6 +53,23 @@ if not _whisper_available:
     )
 
 
+
+def _fallback_python_whisper(audio_path: str) -> str | None:
+    try:
+        import whisper
+        import warnings
+        warnings.filterwarnings("ignore")
+        logger.info("Using python whisper fallback for %s", audio_path)
+        model = whisper.load_model("base")
+        result = model.transcribe(audio_path)
+        return result.get("text", "").strip()
+    except ImportError:
+        logger.warning("Python 'whisper' library not installed for fallback.")
+        return None
+    except Exception as e:
+        logger.error("Python whisper fallback failed: %s", str(e))
+        return None
+
 def transcribe_audio(audio_path: str, timeout: int = 60) -> str | None:
     """Transcribe an audio file to text using FFmpeg + whisper.cpp.
 
@@ -65,10 +82,11 @@ def transcribe_audio(audio_path: str, timeout: int = 60) -> str | None:
     """
     if not _ffmpeg_available or not _whisper_available:
         logger.info(
-            "Audio transcription skipped (ffmpeg=%s, whisper=%s)",
-            _ffmpeg_available,
-            _whisper_available,
+            "Local C++ whisper or ffmpeg missing. Attempting python fallback."
         )
+        py_result = _fallback_python_whisper(audio_path)
+        if py_result:
+            return py_result
         return f"[Voice note available at {audio_path} but could not be transcribed locally]" 
 
     source = Path(audio_path)

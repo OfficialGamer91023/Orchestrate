@@ -205,7 +205,7 @@ def _write_output_csv(results: list[dict], output_path: Path) -> None:
     with open(output_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=list(required_keys),
+            fieldnames=["message_id", "action", "message_type", "reason", "confidence", "evidence_message_ids"],
         )
         writer.writeheader()
         for r in results:

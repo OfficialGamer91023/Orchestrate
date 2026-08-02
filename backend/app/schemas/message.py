@@ -135,6 +135,7 @@ class BatchEvalResponse(BaseModel):
     notify_fpr: float  # False Positive Rate for notify specifically
     class_metrics: dict[str, ClassMetrics]
     confusion_matrix: dict[str, dict[str, int]] | None = None  # {gold: {pred: count}}
+    message_type_accuracy: float | None = None
     per_type_accuracy: dict[str, float] | None = None  # {message_type: accuracy}
     total_latency_ms: int | None = None
     avg_latency_ms: float | None = None

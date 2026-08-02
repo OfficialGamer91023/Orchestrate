@@ -33,3 +33,9 @@ log.txt
 # Large binaries / Submodules if cloned
 whisper.cpp/
 hackerrank-orchestrate-august26/
+*.db*
+*.cache.json
+output.csv
+backend/dataset/
+frontend/node_modules/
+frontend/.next/

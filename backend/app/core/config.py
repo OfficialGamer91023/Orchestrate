@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     DATASET_PATH: str = "./dataset"
 
     # --- Routing ---
-    USER_HANDLE: str = "@Rafay"
+    USER_HANDLE: str = ""
 
     # --- App ---
     APP_TITLE: str = "WhatsApp Message Notification Router"
