@@ -274,16 +274,6 @@ def route_message(msg_input: MessageInput | dict) -> RoutingResult:
 
     msg_id = msg.get("message_id", "unknown")
     
-    # Generate cache key based on immutable characteristics
-    text_content = str(msg.get("message_text", "") or "")
-    sender = str(msg.get("sender_user_id", ""))
-    media = str(msg.get("media_type", ""))
-    cache_key = hashlib.md5(f"{text_content}:{sender}:{media}".encode()).hexdigest()
-    
-    if cache_key in _route_cache:
-        logger.info("Cache hit for message: %s", msg_id)
-        return _route_cache[cache_key]
-
     logger.info("Routing message: %s", msg_id)
 
     # Load context from datasets
@@ -318,7 +308,17 @@ def route_message(msg_input: MessageInput | dict) -> RoutingResult:
             elif str(media_type) == "image":
                 image_path = media_path
 
+    # Generate cache key based on immutable characteristics
+    text_content = str(msg.get("message_text", "") or "")
+    sender = str(msg.get("sender_user_id", ""))
+    media = str(msg.get("media_type", ""))
+    cache_key = hashlib.md5(f"{text_content}:{sender}:{media}".encode()).hexdigest()
+
     # ---- DEEP PATH (LLM) ----
+    if cache_key in _route_cache:
+        logger.info("Deep path cache hit for message: %s", msg_id)
+        return _route_cache[cache_key]
+
     llm_result = route_message_with_llm(
         message=msg,
         context=context,
