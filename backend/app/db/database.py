@@ -1,6 +1,8 @@
 """SQLAlchemy database engine, session factory, and base model."""
 
-from sqlalchemy import create_engine
+from collections.abc import Generator
+
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, sessionmaker, Session
 
 from app.core.config import settings
@@ -15,8 +17,17 @@ engine = create_engine(
     settings.DATABASE_URL,
     connect_args=connect_args,
     echo=False,
-    pool_pre_ping=not settings.DATABASE_URL.startswith("sqlite"), # True for PG
+    pool_pre_ping=not settings.DATABASE_URL.startswith("sqlite"),  # True for PG
 )
+
+# Enable WAL mode for SQLite to allow concurrent reads during writes
+if settings.DATABASE_URL.startswith("sqlite"):
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_conn, connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -26,7 +37,7 @@ class Base(DeclarativeBase):
     pass
 
 
-def get_db() -> Session:
+def get_db() -> Generator[Session, None, None]:
     """FastAPI dependency that yields a database session and auto-closes it."""
     db = SessionLocal()
     try:

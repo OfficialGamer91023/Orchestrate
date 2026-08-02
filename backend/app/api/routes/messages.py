@@ -4,6 +4,7 @@ import logging
 import time
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app.core.security import verify_bearer_token
@@ -36,12 +37,12 @@ async def handle_route_message(
     # Ensure data is loaded
     data_loader.load()
 
-    # Route the message
-    result = route_message(payload)
+    # Route the message (offload blocking call to threadpool)
+    result = await run_in_threadpool(route_message, payload)
     elapsed = int((time.time() - start) * 1000)
 
-    # Determine route method
-    route_method = "fast_path" if elapsed < 100 else "deep_path"
+    # Use the actual route_method from the result, not a timing heuristic
+    route_method = getattr(result, "route_method", "unknown")
 
     # Persist to database
     db_msg = Message(

@@ -37,8 +37,15 @@ SCAM_PATTERNS = [
     r"(?i)\b(account|profile)\b.*\b(block|suspend|deactivat|restrict|expir)\b",
     r"(?i)\b(click|tap|visit)\b.*\b(link|url)\b.*\b(verify|confirm|update)\b",
     r"(?i)\bpay\b.*\b(small|reattempt)\b.*\bfee\b",
-    r"(?i)\bignore\s+all\s+previous\b",  # Prompt injection
-    r"(?i)\bmark\s+this\s+(message\s+)?as\s+notify\b",  # Prompt injection
+    # Prompt injection patterns
+    r"(?i)\bignore\s+all\s+previous\b",
+    r"(?i)\bmark\s+this\s+(message\s+)?as\s+notify\b",
+    r"(?i)\byou\s+are\s+now\s+(a|an)\b",
+    r"(?i)\bforget\s+(your|all)\s+(previous\s+)?instructions\b",
+    r"(?i)\bsystem\s*:\s*you\s+are\b",
+    r"(?i)\bdisregard\s+(all\s+)?(prior|previous)\b",
+    r"(?i)\bnew\s+instructions?\s*:",
+    r"(?i)\boverride\s+(safety|security|rules)\b",
 ]
 
 SCAM_URL_PATTERNS = [

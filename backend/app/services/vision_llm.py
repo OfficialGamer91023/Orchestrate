@@ -1,7 +1,7 @@
 """OpenAI integration for vision and LLM routing.
 
 Uses gpt-4o-mini for multimodal reasoning over text, images,
-and audio transcripts with structured JSON output.
+and audio transcripts with structured Pydantic output.
 """
 
 import json
@@ -77,13 +77,19 @@ def _get_client():
 # ---------------------------------------------------------------------------
 # Image Processing
 # ---------------------------------------------------------------------------
+_image_cache: dict[str, str | None] = {}
+
 
 def _load_and_resize_image_base64(image_path: str, max_dim: int = 1024, max_size_bytes: int = 5 * 1024 * 1024) -> str | None:
-    """Load an image, downscale, and convert to base64 jpeg."""
+    """Load an image, downscale, and convert to base64 jpeg. Results are cached."""
+    if image_path in _image_cache:
+        return _image_cache[image_path]
+
     try:
         import os
         if os.path.getsize(image_path) > max_size_bytes:
             logger.warning("Image too large, skipping: %s", image_path)
+            _image_cache[image_path] = None
             return None
 
         with Image.open(image_path) as img:
@@ -99,9 +105,12 @@ def _load_and_resize_image_base64(image_path: str, max_dim: int = 1024, max_size
             
             buffered = BytesIO()
             img.save(buffered, format="JPEG", quality=85)
-            return base64.b64encode(buffered.getvalue()).decode('utf-8')
+            result = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            _image_cache[image_path] = result
+            return result
     except Exception:
         logger.exception("Failed to load image: %s", image_path)
+        _image_cache[image_path] = None
         return None
 
 
@@ -332,7 +341,7 @@ def route_message_with_llm(
             
             # Using openai parsed output natively
             response = client.beta.chat.completions.parse(
-                model="gpt-4o",
+                model="gpt-4o-mini",
                 messages=messages,
                 response_format=RoutingDecision,
                 temperature=0.1,

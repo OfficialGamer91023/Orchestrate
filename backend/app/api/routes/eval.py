@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -62,7 +63,7 @@ async def batch_evaluate(
     else:
         # Route all messages
         logger.info("Starting batch routing of %d messages", total_messages)
-        results = route_messages(data_loader.messages)
+        results = await run_in_threadpool(route_messages, data_loader.messages)
 
         # Persist results to database
         for r in results:
@@ -157,10 +158,28 @@ async def batch_evaluate(
     # Calculate metrics against golden labels (sample_messages.csv)
     golden = _load_golden_labels()
     if golden:
-        logger.info("Routing sample_messages.csv for evaluation metrics...")
-        sample_results = route_messages(data_loader.sample_messages)
+        # Extract predictions for golden-label messages from existing results
+        # instead of re-routing sample_messages (which wastes LLM calls)
+        golden_ids = {g["message_id"] for g in golden}
+        sample_results = [r for r in results if r["message_id"] in golden_ids]
+
+        # If some golden messages were not in the 110-message batch, route them
+        found_ids = {r["message_id"] for r in sample_results}
+        missing_ids = golden_ids - found_ids
+        if missing_ids:
+            logger.info("Routing %d missing sample messages for evaluation", len(missing_ids))
+            missing_df = data_loader.sample_messages[
+                data_loader.sample_messages["message_id"].isin(missing_ids)
+            ]
+            sample_results.extend(route_messages(missing_df))
+
         metrics = calculate_metrics(sample_results, golden)
-        metrics.total_processed = len(results) # Keep total processed as 110 for the UI
+        metrics.total_processed = len(results)  # Keep total processed as 110 for the UI
+
+        # P2: Attach cost/latency tracking
+        total_latency = sum(r.get("processing_time_ms", 0) for r in results)
+        metrics.total_latency_ms = total_latency
+        metrics.avg_latency_ms = round(total_latency / len(results), 1) if results else 0.0
         return metrics
 
     # No golden labels available — return basic stats

@@ -101,10 +101,19 @@ def calculate_metrics(
         else 0.0
     )
 
+    # Confusion matrix: {gold_action: {pred_action: count}}
+    confusion: dict[str, dict[str, int]] = {c: {c2: 0 for c2 in CLASSES} for c in CLASSES}
+    for msg_id in common_ids:
+        pred = pred_map[msg_id]
+        gold = gold_map[msg_id]
+        if gold in confusion and pred in confusion[gold]:
+            confusion[gold][pred] += 1
+
     return BatchEvalResponse(
         total_processed=len(predictions),
         accuracy=round(accuracy, 4),
         macro_f1=round(macro_f1, 4),
         notify_fpr=round(notify_fpr, 4),
         class_metrics=class_metrics,
+        confusion_matrix=confusion,
     )
