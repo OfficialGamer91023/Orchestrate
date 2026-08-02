@@ -13,25 +13,36 @@ The system ingests multimodal messages (text, image posters/screenshots, voice n
 
 ```mermaid
 flowchart TD
-    A[Incoming Message POST /api/v1/route-message] --> B{Fast Path Rules Engine}
-    B -- Scam / Spam / @mention / Empty --> C[Deterministic Routing Result]
-    B -- Fallthrough --> D[Multimodal Extraction Layer]
+    A[Incoming Message POST] --> B{Personalization Guardrails}
+    B -- Spam / @mention / 90% Dismiss Rate --> C[Deterministic Routing Result]
+    B -- Fallthrough --> D[Multimodal Extraction]
     D --> E[Audio Engine: FFmpeg -> whisper.cpp]
-    D --> F[Vision Layer: PIL Image Resizer]
-    E --> G[LLM Context Assembly: 13 CSV Data Sources]
+    D --> F[Vision Layer: PIL Image Resizer & OCR]
+    E --> G[Algorithmic TF-IDF Retrieval]
     F --> G
-    G --> H[OpenAI GPT-4o-mini API]
-    H --> I[Structured JSON Decision Validation]
-    I --> J[SQLite Database Persistence]
-    C --> J
-    J --> K[API Response & Next.js Dashboard]
+    G -- "Attach Evidence IDs" --> H[LLM Context Assembly]
+    H --> I[OpenAI GPT-4o API]
+    I --> J[Confidence Calibration Math]
+    J --> K[SQLite Database Persistence]
+    C --> K
+    K --> L[API Response & Next.js Dashboard]
 ```
+
+### Why a Hybrid Architecture?
+
+A purely LLM-based router looks good in a prompt but degrades in production due to hallucinated evidence, flat confidence scores, and a tendency to ignore statistical realities (like a user dismissing 90% of notifications from a specific group).
+
+This architecture splits responsibilities strategically:
+- **Deterministic Personalization Guardrails:** Messages from senders with extreme historical skip/report rates are intercepted *before* the LLM. Scam heuristics and direct `@mentions` are also hardcoded. This guarantees user personalization safety.
+- **Algorithmic Evidence Retrieval:** Instead of asking an LLM to hallucinate historical message IDs, a Python-native Jaccard token similarity algorithm retrieves the mathematically correct supporting evidence IDs from the user's history database.
+- **Mathematical Confidence Calibration:** Flat LLM confidence outputs are mathematically bound by the density of the user's history and the presence of matching evidence.
+- **Nuanced LLM Reasoning:** Saved strictly for ambiguous grey-area messages (e.g. is this promotion useful?) and explicit Multimodal OCR analysis.
 
 ### Key Components
 
 1. **Deterministic Fast Path:** Bypasses LLM inference for obvious spam, scam patterns (OTP/verification requests), direct `@mentions`, empty messages, and unverified business domain mismatches.
 2. **Local C++ Audio Engine:** Wraps `whisper.cpp` via an FFmpeg pipeline to transcribe voice notes locally with sub-second latency and zero API cost.
-3. **Cloud Vision & LLM Routing (Deep Path):** Leverages `gpt-4o-mini` with structured Pydantic JSON enforcement and strict Chain-of-Thought (CoT) prompting to reason over user preferences, DND windows, historical engagement, groups, and business metadata. Built-in exponential backoff and jitter algorithms ensure robust handling of OpenAI TPM rate limits during high-volume batch evaluations.
+3. **Cloud Vision & LLM Routing (Deep Path):** Leverages `gpt-4o` with structured Pydantic JSON enforcement and strict Chain-of-Thought (CoT) prompting to reason over user preferences, DND windows, historical engagement, groups, and business metadata. Built-in exponential backoff and jitter algorithms ensure robust handling of OpenAI TPM rate limits during high-volume batch evaluations.
 4. **Evaluation Engine & Dashboard:** A Next.js 15 app router web interface visualizing real-time routing decisions, message logs, audio transcripts, LLM reasoning, and benchmark metrics (Accuracy, Precision, Recall, Macro-F1, Notify FPR).
 
 ---

@@ -178,6 +178,37 @@ def _execute_fast_path(
                 route_method="fast_path",
             )
 
+    # ---- Rule 6: High dismissal rate for Group (Personalization) ----
+    grp = context.get("group", {})
+    if grp.get("found"):
+        reads = grp.get("user_messages_read_30d", 0)
+        dismissals = grp.get("user_notifications_dismissed_30d", 0)
+        total_interactions = reads + dismissals
+        if total_interactions >= 5 and (dismissals / total_interactions) > 0.8:
+            return RoutingResult(
+                action="digest",
+                message_type="event",
+                reasoning=f"User has a historically high dismissal rate for this group ({dismissals} dismissals out of {total_interactions} interactions). Auto-routing to digest.",
+                confidence=0.92,
+                evidence_message_ids="none",
+                route_method="fast_path",
+            )
+
+    # ---- Rule 7: Business highly dismissed (Personalization) ----
+    if biz.get("found"):
+        opens = biz.get("user_messages_opened_30d", 0)
+        dismissals = biz.get("user_messages_dismissed_30d", 0)
+        
+        if dismissals >= 5 and opens == 0:
+            return RoutingResult(
+                action="mute",
+                message_type="promotion",
+                reasoning=f"User has consistently dismissed ({dismissals}) messages from this business recently without engaging. Hard muting.",
+                confidence=0.95,
+                evidence_message_ids="none",
+                route_method="fast_path",
+            )
+
     # No fast-path rule matched → fall through to LLM
     return None
 
@@ -260,12 +291,27 @@ def route_message(msg_input: MessageInput | dict) -> RoutingResult:
     elapsed = int((time.time() - start_time) * 1000)
 
     if llm_result is not None:
+        # ---- ALGORITHMIC EVIDENCE & CONFIDENCE ----
+        retrieved_evidence = data_loader.get_evidence_for_message(msg)
+        
+        # Calculate a deterministic confidence boundary based on history density
+        history = context.get("history", [])
+        base_confidence = llm_result.confidence
+        
+        if retrieved_evidence == "none":
+            # Cold-start or no similar history: cap confidence at 0.6
+            final_confidence = min(base_confidence, 0.6)
+        else:
+            # Rich history found
+            bonus = 0.1 if len(history) > 3 else 0.0
+            final_confidence = min(base_confidence + bonus, 1.0)
+            
         result = RoutingResult(
             action=llm_result.action,
             message_type=llm_result.message_type,
             reasoning=llm_result.reasoning,
-            confidence=llm_result.confidence,
-            evidence_message_ids=llm_result.evidence_message_ids,
+            confidence=round(final_confidence, 2),
+            evidence_message_ids=retrieved_evidence,
             route_method="deep_path",
         )
         logger.info(

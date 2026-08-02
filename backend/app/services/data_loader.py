@@ -35,6 +35,21 @@ def _safe_bool(val: Any, default: bool = False) -> bool:
     return default
 
 
+def _calculate_jaccard_similarity(text1: str, text2: str) -> float:
+    if not text1 or not text2:
+        return 0.0
+    
+    # Simple word tokenization (lowercased, alphanumeric only)
+    import re
+    words1 = set(re.findall(r'\b\w+\b', str(text1).lower()))
+    words2 = set(re.findall(r'\b\w+\b', str(text2).lower()))
+    
+    if not words1 or not words2:
+        return 0.0
+        
+    intersection = words1.intersection(words2)
+    union = words1.union(words2)
+    return len(intersection) / len(union)
 
 class DataLoader:
     """Singleton-style loader for the hackathon dataset."""
@@ -409,6 +424,63 @@ class DataLoader:
             context["media_path"] = None
 
         return context
+
+    def get_evidence_for_message(self, msg: dict, limit: int = 3) -> str:
+        """Retrieve top matching historical message IDs using Jaccard similarity."""
+        user_id = msg.get("user_id", "")
+        if not user_id:
+            return "none"
+
+        # Fetch history for this user
+        hist = self.message_history[self.message_history["user_id"] == user_id]
+        if hist.empty:
+            return "none"
+
+        # Filter by sender, group, or business to narrow the search space
+        sender_id = msg.get("sender_user_id")
+        group_id = msg.get("group_id")
+        biz_id = msg.get("business_id")
+        
+        filtered_hist = hist
+        if sender_id and pd.notna(sender_id):
+            filtered_hist = hist[hist["sender_user_id"] == sender_id]
+        elif group_id and pd.notna(group_id):
+            filtered_hist = hist[hist["group_id"] == group_id]
+        elif biz_id and pd.notna(biz_id):
+            filtered_hist = hist[hist["business_id"] == biz_id]
+            
+        # Fall back to all history if specific filter yields nothing
+        if filtered_hist.empty:
+            filtered_hist = hist
+
+        current_text = str(msg.get("message_text", "") or "")
+        scored_messages = []
+
+        for _, row in filtered_hist.iterrows():
+            hist_msg_id = row.get("message_id")
+            hist_text = str(row.get("message_text", "") or "")
+            
+            # Base similarity on text
+            sim = _calculate_jaccard_similarity(current_text, hist_text)
+            
+            # Boost score if media type matches
+            if msg.get("media_type") and pd.notna(msg.get("media_type")) and msg.get("media_type") == row.get("media_type"):
+                sim += 0.2
+                
+            if sim > 0:
+                scored_messages.append((hist_msg_id, sim))
+
+        if not scored_messages:
+            # If no textual similarity, return recent activity from the same sender/group
+            recent = filtered_hist.sort_values("created_at", ascending=False).head(limit)
+            ids = [str(r["message_id"]) for _, r in recent.iterrows()]
+            return ";".join(ids) if ids else "none"
+
+        # Sort by similarity descending
+        scored_messages.sort(key=lambda x: x[1], reverse=True)
+        top_ids = [str(m[0]) for m in scored_messages[:limit]]
+        
+        return ";".join(top_ids)
 
 
 # Module-level singleton
