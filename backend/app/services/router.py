@@ -273,7 +273,13 @@ def route_message(msg_input: MessageInput | dict) -> RoutingResult:
         msg = dict(msg_input)
 
     msg_id = msg.get("message_id", "unknown")
-    
+
+    # Generate cache key based on immutable characteristics
+    text_content = str(msg.get("message_text", "") or "")
+    sender = str(msg.get("sender_user_id", ""))
+    media = str(msg.get("media_type", ""))
+    cache_key = hashlib.md5(f"{text_content}:{sender}:{media}".encode()).hexdigest()
+
     logger.info("Routing message: %s", msg_id)
 
     # Load context from datasets
