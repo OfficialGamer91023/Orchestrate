@@ -13,7 +13,9 @@ import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
-from cachetools import TTLCache
+import json
+import threading
+from pathlib import Path
 
 from app.core.config import settings
 from app.schemas.message import MessageInput, RoutingResult
@@ -23,8 +25,37 @@ from app.services.vision_llm import route_message_with_llm
 
 logger = logging.getLogger(__name__)
 
-# TTL Cache: max 1000 items, expires in 300 seconds (5 minutes)
-_route_cache = TTLCache(maxsize=1000, ttl=300)
+# Persistent disk cache for LLM responses
+class PersistentCache:
+    def __init__(self, path: str = ".llm_cache.json"):
+        self.path = Path(path)
+        self.lock = threading.Lock()
+        self.data = {}
+        if self.path.exists():
+            try:
+                with open(self.path, "r", encoding="utf-8") as f:
+                    self.data = json.load(f)
+            except Exception as e:
+                logger.warning("Failed to load cache from %s: %s", self.path, e)
+                self.data = {}
+
+    def __contains__(self, key):
+        return key in self.data
+
+    def __getitem__(self, key):
+        data = self.data[key]
+        return RoutingResult(**data)
+
+    def __setitem__(self, key, value: RoutingResult):
+        with self.lock:
+            self.data[key] = value.model_dump()
+            try:
+                with open(self.path, "w", encoding="utf-8") as f:
+                    json.dump(self.data, f)
+            except Exception as e:
+                logger.error("Failed to write cache to %s: %s", self.path, e)
+
+_route_cache = PersistentCache()
 
 # ---------------------------------------------------------------------------
 # Scam / Phishing Pattern Detection

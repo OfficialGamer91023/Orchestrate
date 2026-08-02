@@ -175,7 +175,6 @@ Example 3:
 Message: "Security alert: OTP may have leaked. Verify now at account-login.in or profile may be temporarily blocked."
 Sender Context: Unknown personal number
 Reasoning: "1. Sender & Context: Unknown sender masquerading as support. 2. Historical Engagement: None. 3. Urgency: Uses fake urgency to pressure user into visiting a suspicious link for OTP verification, violating Rule 1. 4. Conclusion: Therefore, the action should be mute."
-Decision: mute, scam
 Decision: mute, scam"""
 
 

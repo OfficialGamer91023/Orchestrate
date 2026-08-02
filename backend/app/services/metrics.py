@@ -26,9 +26,9 @@ def calculate_metrics(
     Returns:
         BatchEvalResponse with full metrics
     """
-    # Build lookup: message_id -> predicted action
+    # Build lookup: message_id -> dict
     pred_map = {p["message_id"]: p.get("action", "digest") for p in predictions}
-    gold_map = {g["message_id"]: g.get("action", "") for g in golden}
+    gold_map = {g["message_id"]: g for g in golden}
 
     # Find common message IDs
     common_ids = set(pred_map.keys()) & set(gold_map.keys())
@@ -50,17 +50,17 @@ def calculate_metrics(
 
     for msg_id in common_ids:
         pred = pred_map[msg_id]
-        gold = gold_map[msg_id]
+        gold_action = gold_map[msg_id].get("action", "")
 
-        if pred == gold:
+        if pred == gold_action:
             correct += 1
             if pred in tp:
                 tp[pred] += 1
         else:
             if pred in fp:
                 fp[pred] += 1
-            if gold in fn:
-                fn[gold] += 1
+            if gold_action in fn:
+                fn[gold_action] += 1
 
     # Calculate per-class metrics
     class_metrics: dict[str, ClassMetrics] = {}
@@ -90,10 +90,26 @@ def calculate_metrics(
     # Accuracy
     accuracy = correct / len(common_ids) if common_ids else 0.0
 
+    # P2: Stratified accuracy by message_type
+    # {message_type: {"correct": int, "total": int}}
+    type_stats: dict[str, dict[str, int]] = {}
+    for msg_id in common_ids:
+        gold_type = gold_map[msg_id].get("message_type", "unknown")
+        if gold_type not in type_stats:
+            type_stats[gold_type] = {"correct": 0, "total": 0}
+        type_stats[gold_type]["total"] += 1
+        if pred_map[msg_id] == gold_map[msg_id]["action"]:
+            type_stats[gold_type]["correct"] += 1
+
+    per_type_accuracy = {}
+    for mtype, stats in type_stats.items():
+        if stats["total"] > 0:
+            per_type_accuracy[mtype] = round(stats["correct"] / stats["total"], 4)
+
     # Notify False Positive Rate = FP_notify / (FP_notify + TN_notify)
     # TN_notify = total non-notify golds that were not predicted as notify
     total_non_notify_gold = sum(
-        1 for mid in common_ids if gold_map[mid] != "notify"
+        1 for mid in common_ids if gold_map[mid]["action"] != "notify"
     )
     notify_fpr = (
         fp["notify"] / total_non_notify_gold
@@ -105,9 +121,9 @@ def calculate_metrics(
     confusion: dict[str, dict[str, int]] = {c: {c2: 0 for c2 in CLASSES} for c in CLASSES}
     for msg_id in common_ids:
         pred = pred_map[msg_id]
-        gold = gold_map[msg_id]
-        if gold in confusion and pred in confusion[gold]:
-            confusion[gold][pred] += 1
+        gold_action = gold_map[msg_id].get("action", "")
+        if gold_action in confusion and pred in confusion[gold_action]:
+            confusion[gold_action][pred] += 1
 
     return BatchEvalResponse(
         total_processed=len(predictions),
@@ -116,4 +132,5 @@ def calculate_metrics(
         notify_fpr=round(notify_fpr, 4),
         class_metrics=class_metrics,
         confusion_matrix=confusion,
+        per_type_accuracy=per_type_accuracy,
     )
